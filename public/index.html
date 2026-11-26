@@ -43,7 +43,7 @@ summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weig
 <script>
 {
 const DEF={toStation:5,wait1:3,bRide:5,bWalk:3,aRide1:2,aXfer:4,aWait2:3,aRide2:6,aWalk:2,d:9,r:8,home:3,headway:15,margin:1};
-const LBL={toStation:'하나로마트 → 부전역 승강장',wait1:'1호선 대기',bRide:'1호선 부전 → 범일',bWalk:'범일역 → 정류장',aRide1:'1호선 부전 → 서면',aXfer:'서면 환승 도보',aWait2:'2호선 대기',aRide2:'2호선 서면 → 문현',aWalk:'문현역 → 정류장',d:'남구5 범일역 → 문현역',r:'남구5 문현역 → 내릴 곳',home:'내려서 집까지',headway:'남구5 배차 간격',margin:'버스 오기 전 여유'};
+const LBL={toStation:'하나로마트 → 부전역 승강장',wait1:'1호선 대기 (시각표 없을 때만)',bRide:'1호선 부전 → 범일',bWalk:'범일역 → 정류장',aRide1:'1호선 부전 → 서면',aXfer:'서면 환승 도보',aWait2:'2호선 대기 (시각표 없을 때만)',aRide2:'2호선 서면 → 문현',aWalk:'문현역 → 정류장',d:'남구5 범일역 → 문현역',r:'남구5 문현역 → 내릴 곳',home:'내려서 집까지',headway:'남구5 배차 간격',margin:'버스 오기 전 여유'};
 const K='beomil-munhyeon-cfg';
 let cfg={...DEF};try{Object.assign(cfg,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}
 let data=null;
@@ -56,6 +56,19 @@ function pick(list,need){
   const t=list.find(x=>x>=need);if(t!==undefined)return{t,est:false};
   if(!list.length)return{t:need+cfg.headway/2,est:true};
   let x=list[list.length-1];while(x<need)x+=cfg.headway;return{t:x,est:true}}
+let train=null;
+const clk=m=>String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(Math.floor(m%60)).padStart(2,'0');
+// 지하철 시각표로 정류장 도착(지금부터 몇 분 뒤)을 계산. 시각표가 없으면 null
+function subway(nowAbs){
+  const S=train&&train.stations,c=cfg;if(!S||!S.bujeon)return null;
+  const dep=S.bujeon.find(x=>x.t>=nowAbs+c.toStation);if(!dep)return null;
+  const same=(arr,no)=>(arr||[]).find(x=>x.no&&x.no===no&&x.t>=dep.t);
+  const arrB=(same(S.beomil,dep.no)||{t:dep.t+c.bRide}).t;
+  const arrS=(same(S.seomyeon1,dep.no)||{t:dep.t+c.aRide1}).t;
+  const dep2=(S.seomyeon2||[]).find(x=>x.t>=arrS+c.aXfer);
+  const arrM=dep2?((S.munhyeon||[]).find(x=>x.no&&x.no===dep2.no&&x.t>=dep2.t)||{t:dep2.t+c.aRide2}).t:null;
+  return{dep:dep.t,dep2:dep2?dep2.t:null,reachB:arrB+c.bWalk-nowAbs,reachA:arrM===null?null:arrM+c.aWalk-nowAbs};
+}
 function render(){
   $('clock').textContent=hm(new Date());
   if(!data)return;
@@ -63,16 +76,22 @@ function render(){
   let b=data.beomil.buses.map(x=>x.min-el), m=data.munhyeon.buses.map(x=>x.min-el);
   if(!b.length&&m.length)b=m.map(x=>x-c.d);
   if(!m.length&&b.length)m=b.map(x=>x+c.d);
-  const reachB=c.toStation+c.wait1+c.bRide+c.bWalk, reachA=c.toStation+c.wait1+c.aRide1+c.aXfer+c.aWait2+c.aRide2+c.aWalk;
+  const nd=new Date(),nowAbs=nd.getHours()*60+nd.getMinutes()+nd.getSeconds()/60;
+  const sw=subway(nowAbs);
+  let reachB=c.toStation+c.wait1+c.bRide+c.bWalk, reachA=c.toStation+c.wait1+c.aRide1+c.aXfer+c.aWait2+c.aRide2+c.aWalk;
+  if(sw){reachB=sw.reachB;if(sw.reachA!==null)reachA=sw.reachA}
+  const subB=sw?`부전역 ${clk(sw.dep)} 1호선 (시각표)`:'1호선 시각표 없음 · 대기 '+c.wait1+'분 가정';
+  const subA=sw&&sw.dep2!==null?`부전역 ${clk(sw.dep)} → 서면 ${clk(sw.dep2)} 2호선 (시각표)`:'2호선 시각표 없음 · 대기 가정';
   const pb=pick(b.sort((x,y)=>x-y),reachB+c.margin), pa=pick(m.sort((x,y)=>x-y),reachA+c.margin);
   const hb=pb.t+c.d+c.r+c.home, ha=pa.t+c.r+c.home, diff=ha-hb;
   let w;
   if(Math.abs(diff)<1.5){w='B';$('v').innerHTML='범일역에서 타세요<small>같은 버스라서 도착은 같고, 범일역이 회차점이라 앉아 가요 · '+at(hb)+' 집 도착</small>'}
   else{w=diff<0?'A':'B';$('v').innerHTML=(w==='B'?'범일역':'문현역')+'에서 타세요<small>'+R(Math.abs(diff))+'분 빨라요 · '+at(Math.min(ha,hb))+' 집 도착</small>'}
-  const card=(id,name,bus,reach,p,home)=>`<div class="c ${w===id?'win':''}"><h2>${name}</h2><div class="t">${at(home)}</div>
+  const card=(id,name,sub,bus,reach,p,home)=>`<div class="c ${w===id?'win':''}"><h2>${name}</h2><div class="t">${at(home)}</div>
+    <p>${sub}</p>
     <p>남구5 ${bus.length?bus.filter(x=>x>-1).slice(0,2).map(x=>R(Math.max(0,x))+'분 후').join(', ')||'정보 없음':'정보 없음'}</p>
     <p>정류장 도착 ${at(reach)}</p><p>${at(p.t)} 차 탑승${p.est?' (추정)':''}</p></div>`;
-  $('cards').innerHTML=card('B','범일역',b,reachB,pb,hb)+card('A','문현역 (서면 환승)',m,reachA,pa,ha);
+  $('cards').innerHTML=card('B','범일역',subB,b,reachB,pb,hb)+card('A','문현역 (서면 환승)',subA,m,reachA,pa,ha);
 }
 async function load(){
   try{const r=await fetch('/api/bus',{cache:'no-store'});const j=await r.json();
@@ -80,6 +99,9 @@ async function load(){
   catch(e){$('err').textContent='버스 정보를 못 가져왔어요: '+e.message}}
 $('cfg').innerHTML=Object.keys(DEF).map(k=>`<label class="row"><span>${LBL[k]}</span><input type="number" inputmode="decimal" min="0" step="0.5" data-k="${k}" value="${cfg[k]}"></label>`).join('');
 $('cfg').addEventListener('input',e=>{const k=e.target.dataset.k;if(!k)return;const n=parseFloat(e.target.value);cfg[k]=isFinite(n)?n:0;try{localStorage.setItem(K,JSON.stringify(cfg))}catch(_){}render()});
+// 지하철 시각표는 잘 안 바뀌므로 10분마다 한 번만 받아 옴
+async function loadTrain(){try{const r=await fetch('/api/train');const j=await r.json();if(!j.error){train=j;render()}}catch(_){}}
+loadTrain();setInterval(loadTrain,10*60000);
 // 5초마다 새로고침. API 하루 호출 한도를 아끼려고 화면이 켜져 있을 때만, 10분 뒤에는 자동으로 멈춤
 const EVERY=5000,LIMIT=10*60000;let poll=null,started=0;
 function stopPoll(){clearInterval(poll);poll=null;$('refresh').textContent='자동 새로고침 다시 켜기'}
