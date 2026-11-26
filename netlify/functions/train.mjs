@@ -13,7 +13,8 @@ const STATIONS = {
 const lastText = {};
 const kstNow = () => new Date(Date.now() + 9 * 3600e3); // UTC 메서드로 읽으면 한국 시각
 const hhmm = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + String(Math.floor(m % 60)).padStart(2, '0');
-const toMin = s => { const d = String(s).replace(/\D/g, '').padStart(4, '0').slice(0, 4); return +d.slice(0, 2) * 60 + +d.slice(2, 4); };
+// '22:26:25' 또는 '2226' → 자정부터 분(초는 소수점)
+const toMin = s => { const d = String(s).replace(/\D/g, '').padEnd(6, '0'); return +d.slice(0, 2) * 60 + +d.slice(2, 4) + +d.slice(4, 6) / 60; };
 
 async function fetchStation(code, day, stime, etime) {
   const qs = new URLSearchParams({ serviceKey: process.env.BIMS_KEY, act: 'json', scode: code, day, stime, etime, pageNo: '1', numOfRows: '200' });
@@ -45,6 +46,7 @@ export default async req => {
       raw[k] = items.slice(0, 6);
       const here = +s.scode;
       out.stations[k] = items
+        .filter(x => !x.dayType || String(x.dayType) === day) // 요일 구분이 섞여 오므로 오늘 것만
         .filter(x => { const e = parseInt(x.endcode, 10); return isFinite(e) ? e < here : true; })
         .map(x => ({ t: toMin(x.arrtime), no: String(x.trainno || ''), end: x.endcode, updown: x.updown }))
         .filter(x => x.t >= nowMin - 1)
