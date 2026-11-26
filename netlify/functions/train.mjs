@@ -10,6 +10,7 @@ const STATIONS = {
   munhyeon: { scode: '216', toward: 'down' }  // 2호선 문현
 };
 
+const lastText = {};
 const kstNow = () => new Date(Date.now() + 9 * 3600e3); // UTC 메서드로 읽으면 한국 시각
 const hhmm = m => String(Math.floor(m / 60) % 24).padStart(2, '0') + String(Math.floor(m % 60)).padStart(2, '0');
 const toMin = s => { const d = String(s).replace(/\D/g, '').padStart(4, '0').slice(0, 4); return +d.slice(0, 2) * 60 + +d.slice(2, 4); };
@@ -18,6 +19,7 @@ async function fetchStation(code, day, stime, etime) {
   const qs = new URLSearchParams({ serviceKey: process.env.BIMS_KEY, act: 'json', scode: code, day, stime, etime, pageNo: '1', numOfRows: '200' });
   const res = await fetch(`${URL_}?${qs}`);
   const text = await res.text();
+  lastText[code] = res.status + ' ' + text.slice(0, 400);
   let j; try { j = JSON.parse(text); } catch { throw new Error(`시각표 응답 오류(${code}): ${text.slice(0, 160)}`); }
   const rc = j?.response?.header?.resultCode ?? j?.header?.resultCode;
   const body = j?.response?.body ?? j?.body;
@@ -48,7 +50,7 @@ export default async req => {
         .filter(x => x.t >= nowMin - 1)
         .sort((a, b) => a.t - b.t);
     }));
-    if (debug) out.raw = raw;
+    if (debug) { out.raw = raw; out.text = lastText; }
     return Response.json(out, { headers: { 'cache-control': 'public, max-age=60' } });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 502 });
