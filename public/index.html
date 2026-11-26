@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e9e8e">
+<title>범일 vs 문현</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#fff,#0f1720);--ink:light-dark(#141a21,#eef2f5);--mut:light-dark(#5d6873,#9aa6b1);--line:light-dark(#e3e7eb,#25313c);--card:light-dark(#f3f6f8,#16212c);--bus:#0e9e8e;--l1:#f06a00;--l2:#5fae2e}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "IBM Plex Sans KR",system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:28px 18px 40px}
+.top{display:flex;justify-content:space-between;color:var(--mut);font-size:14px}
+.v{font-size:clamp(34px,10vw,52px);line-height:1.08;font-weight:700;margin:18px 0 8px;text-wrap:balance}
+.v small{display:block;font-size:18px;font-weight:600;color:var(--mut);margin-top:10px}
+.cards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:22px}
+.c{background:var(--card);border-radius:14px;padding:14px;border:3px solid transparent}
+.c.win{border-color:var(--bus)}
+.c h2{font-size:15px;margin:0;color:var(--mut);font-weight:600}
+.c .t{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.c p{margin:2px 0;font-size:14px;color:var(--mut)}
+.err{color:#c62828;font-size:14px}
+button{min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;padding:0 16px;cursor:pointer;margin-top:18px}
+details{margin-top:24px;border-top:1px solid var(--line);padding-top:6px}
+summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:8px;align-items:center;padding:3px 0;font-size:15px}
+.row input{height:44px;font:inherit;font-size:16px;text-align:right;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+  <div class="top"><span>부전 하나로마트 출발 · 남구5</span><span id="clock"></span></div>
+  <p class="v" id="v">버스 위치 확인 중…</p>
+  <div class="cards" id="cards"></div>
+  <p class="err" id="err"></p>
+  <button id="refresh" type="button">새로고침</button>
+  <details>
+    <summary>걸리는 시간 설정 (분)</summary>
+    <div id="cfg"></div>
+  </details>
+</main>
+<script>
+{
+const DEF={toStation:5,wait1:3,bRide:5,bWalk:3,aRide1:2,aXfer:4,aWait2:3,aRide2:6,aWalk:2,d:9,r:8,home:3,headway:15,margin:1};
+const LBL={toStation:'하나로마트 → 부전역 승강장',wait1:'1호선 대기',bRide:'1호선 부전 → 범일',bWalk:'범일역 → 정류장',aRide1:'1호선 부전 → 서면',aXfer:'서면 환승 도보',aWait2:'2호선 대기',aRide2:'2호선 서면 → 문현',aWalk:'문현역 → 정류장',d:'남구5 범일역 → 문현역',r:'남구5 문현역 → 내릴 곳',home:'내려서 집까지',headway:'남구5 배차 간격',margin:'버스 오기 전 여유'};
+const K='beomil-munhyeon-cfg';
+let cfg={...DEF};try{Object.assign(cfg,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}
+let data=null;
+const $=id=>document.getElementById(id);
+const hm=d=>d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+const at=m=>hm(new Date(Date.now()+m*60000));
+const R=Math.round;
+
+function pick(list,need){
+  const t=list.find(x=>x>=need);if(t!==undefined)return{t,est:false};
+  if(!list.length)return{t:need+cfg.headway/2,est:true};
+  let x=list[list.length-1];while(x<need)x+=cfg.headway;return{t:x,est:true}}
+function render(){
+  $('clock').textContent=hm(new Date());
+  if(!data)return;
+  const el=(Date.now()-data.at)/60000, c=cfg;
+  let b=data.beomil.buses.map(x=>x.min-el), m=data.munhyeon.buses.map(x=>x.min-el);
+  if(!b.length&&m.length)b=m.map(x=>x-c.d);
+  if(!m.length&&b.length)m=b.map(x=>x+c.d);
+  const reachB=c.toStation+c.wait1+c.bRide+c.bWalk, reachA=c.toStation+c.wait1+c.aRide1+c.aXfer+c.aWait2+c.aRide2+c.aWalk;
+  const pb=pick(b.sort((x,y)=>x-y),reachB+c.margin), pa=pick(m.sort((x,y)=>x-y),reachA+c.margin);
+  const hb=pb.t+c.d+c.r+c.home, ha=pa.t+c.r+c.home, diff=ha-hb;
+  let w;
+  if(Math.abs(diff)<1.5){w='B';$('v').innerHTML='범일역에서 타세요<small>같은 버스라서 도착은 같고, 범일역이 회차점이라 앉아 가요 · '+at(hb)+' 집 도착</small>'}
+  else{w=diff<0?'A':'B';$('v').innerHTML=(w==='B'?'범일역':'문현역')+'에서 타세요<small>'+R(Math.abs(diff))+'분 빨라요 · '+at(Math.min(ha,hb))+' 집 도착</small>'}
+  const card=(id,name,bus,reach,p,home)=>`<div class="c ${w===id?'win':''}"><h2>${name}</h2><div class="t">${at(home)}</div>
+    <p>남구5 ${bus.length?bus.filter(x=>x>-1).slice(0,2).map(x=>R(Math.max(0,x))+'분 후').join(', ')||'정보 없음':'정보 없음'}</p>
+    <p>정류장 도착 ${at(reach)}</p><p>${at(p.t)} 차 탑승${p.est?' (추정)':''}</p></div>`;
+  $('cards').innerHTML=card('B','범일역',b,reachB,pb,hb)+card('A','문현역 (서면 환승)',m,reachA,pa,ha);
+}
+async function load(){
+  try{const r=await fetch('/api/bus',{cache:'no-store'});const j=await r.json();
+    if(j.error)throw new Error(j.error);data=j;$('err').textContent='';render()}
+  catch(e){$('err').textContent='버스 정보를 못 가져왔어요: '+e.message}}
+$('cfg').innerHTML=Object.keys(DEF).map(k=>`<label class="row"><span>${LBL[k]}</span><input type="number" inputmode="decimal" min="0" step="0.5" data-k="${k}" value="${cfg[k]}"></label>`).join('');
+$('cfg').addEventListener('input',e=>{const k=e.target.dataset.k;if(!k)return;const n=parseFloat(e.target.value);cfg[k]=isFinite(n)?n:0;try{localStorage.setItem(K,JSON.stringify(cfg))}catch(_){}render()});
+// 5초마다 새로고침. API 하루 호출 한도를 아끼려고 화면이 켜져 있을 때만, 10분 뒤에는 자동으로 멈춤
+const EVERY=5000,LIMIT=10*60000;let poll=null,started=0;
+function stopPoll(){clearInterval(poll);poll=null;$('refresh').textContent='자동 새로고침 다시 켜기'}
+function startPoll(){started=Date.now();load();clearInterval(poll);
+  poll=setInterval(()=>{if(Date.now()-started>LIMIT)return stopPoll();load()},EVERY);
+  $('refresh').textContent='5초마다 새로고침 중 · 지금 새로고침'}
+$('refresh').addEventListener('click',startPoll);
+document.addEventListener('visibilitychange',()=>{document.hidden?stopPoll():startPoll()});
+startPoll();
+const tick=setInterval(render,10000);
+}
+</script>
+</body>
+</html>
